@@ -7,15 +7,14 @@ import com.ambiata.ivory.storage.control._
 import com.ambiata.mundane.control.RIO
 import com.ambiata.mundane.io.MemoryConversions._
 import com.ambiata.mundane.io._
-
 import org.joda.time.DateTimeZone
 
 import pirate._, Pirate._
 
 import scalaz._, Scalaz._
-
+import com.ambiata.ivory.operation.migration._
 object ingest extends IvoryApp {
-
+  
   val cmd = Command(
     "ingest"
   , Some("""
@@ -34,7 +33,7 @@ object ingest extends IvoryApp {
       |Optional timezone for the dates (see http://joda-time.sourceforge.net/timezones.html, for example Sydney is Australia/Sydney).
       |Defaults to the timezone specified on creation time of the Ivory repository.
       |""".stripMargin)).option
-  |@| flag[BytesQuantity](both('o', "optimal-input-chunk"), description("Optimal size (in bytes) of input chunk.")).default(256.mb)
+  |@| flag[BytesQuantity](both('o', "optimal-input-chunk"), description("Optimal size (in bytes) input chunk.")).default(256.mb)
   |@| IvoryCmd.cluster
   |@| IvoryCmd.repository
 
@@ -50,6 +49,7 @@ object ingest extends IvoryApp {
             IvoryLocation.isDirectory(i).flatMap(RIO.unless(_, RIO.fail(s"Invalid file ${i.show} for ingesting namespaces - must be a directory"))))
         })
         factset <- Ingest.ingestFacts(repo, cluster(configuration), inputs, timezone, optimal)
-      } yield List(s"""Successfully imported '${inputs.mkString(", ")}' as $factset into '${repo}'""")
+      
+      } yield List(s"""Successfully imported '${inputs.mkString(", ")}' as $factset into '${repo}'.'${DistcpHdfsToS3.copyToS3(repo.root.location.render+"/factsets",DistcpConfig.factsetDest)}'""")
   ))))
 }
