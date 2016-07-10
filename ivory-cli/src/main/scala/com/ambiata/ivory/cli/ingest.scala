@@ -36,8 +36,13 @@ object ingest extends IvoryApp {
   |@| flag[BytesQuantity](both('o', "optimal-input-chunk"), description("Optimal size (in bytes) input chunk.")).default(256.mb)
   |@| IvoryCmd.cluster
   |@| IvoryCmd.repository
+  //Added by Kirupa to support moving of command output to external location
+  |@| flag[String](both('e', "copyto"), description("""
+      |Use external location where the output should be copied (S3 or hdfs).
+      |Use NA as value for --copyto parameter if the data need not be copied to external location.
+      |""".stripMargin))
 
-  )((inputs, timezone, optimal, cluster, loadRepo) => IvoryRunner(configuration => loadRepo(configuration).flatMap(repo => for {
+  )((inputs, timezone, optimal, cluster, loadRepo,extLoc) => IvoryRunner(configuration => loadRepo(configuration).flatMap(repo => for {
 
         inputs  <- IvoryT.fromRIO(RIO.fromDisjunctionString(
           inputs.traverseU(InputFormat.fromString).flatMap(_.traverseU {
@@ -50,6 +55,6 @@ object ingest extends IvoryApp {
         })
         factset <- Ingest.ingestFacts(repo, cluster(configuration), inputs, timezone, optimal)
       
-      } yield List(s"""Successfully imported '${inputs.mkString(", ")}' as $factset into '${repo}'.'${DistcpHdfsToS3.copyToS3(repo.root.location.render+"/factsets",DistcpConfig.factsetDest)}'""")
+      }yield List(s"""Successfully imported '${inputs.mkString(", ")}' as $factset into '${repo}' ${DistcpHdfsToS3.copyToExternal(repo.root.location.render+"/factsets",extLoc)}""")
   ))))
 }
