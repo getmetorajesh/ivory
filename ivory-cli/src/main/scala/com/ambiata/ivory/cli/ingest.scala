@@ -14,47 +14,50 @@ import pirate._, Pirate._
 import scalaz._, Scalaz._
 import com.ambiata.ivory.operation.migration._
 object ingest extends IvoryApp {
-  
+
   val cmd = Command(
     "ingest"
-  , Some("""
-    |Fact ingestion pipeline.
-    |
-    |This will import a set of facts using the latest dictionary.
-    |
-    |""".stripMargin)
+    , Some("""
+             |Fact ingestion pipeline.
+             |
+             |This will import a set of facts using the latest dictionary.
+             |
+             |""".stripMargin)
 
-  , ( flag[String](both('i', "input"), description(s"""
-      |Path to data to import, in the form FORMAT[|NAMESPACE]=PATH.
-      |Supported formats are in the style FORM[:ESCAPING]:DELIM (ie 'sparse:delimited:psv' or 'sparse:thrift').
-      |If NAMESPACE is set then the input path is expected to contain partitioned factsets.
+    , ( flag[String](both('i', "input"), description(s"""
+                                                        |Path to data to import, in the form FORMAT[|NAMESPACE]=PATH.
+                                                        |Supported formats are in the style FORM[:ESCAPING]:DELIM (ie 'sparse:delimited:psv' or 'sparse:thrift').
+                                                        |If NAMESPACE is set then the input path is expected to contain partitioned factsets.
       """.stripMargin)).some
-  |@| flag[DateTimeZone](both('z', "timezone"), description("""
-      |Optional timezone for the dates (see http://joda-time.sourceforge.net/timezones.html, for example Sydney is Australia/Sydney).
-      |Defaults to the timezone specified on creation time of the Ivory repository.
-      |""".stripMargin)).option
-  |@| flag[BytesQuantity](both('o', "optimal-input-chunk"), description("Optimal size (in bytes) input chunk.")).default(256.mb)
-  |@| IvoryCmd.cluster
-  |@| IvoryCmd.repository
-  //Added by Kirupa to support moving of command output to external location
-  |@| flag[String](both('e', "copyto"), description("""
-      |Use external location where the output should be copied (S3 or hdfs).
-      |Use NA as value for --copyto parameter if the data need not be copied to external location.
-      |""".stripMargin))
+      |@| flag[DateTimeZone](both('z', "timezone"), description("""
+                                                                  |Optional timezone for the dates (see http://joda-time.sourceforge.net/timezones.html, for example Sydney is Australia/Sydney).
+                                                                  |Defaults to the timezone specified on creation time of the Ivory repository.
+                                                                  |""".stripMargin)).option
+      |@| flag[BytesQuantity](both('o', "optimal-input-chunk"), description("Optimal size (in bytes) input chunk.")).default(256.mb)
+      |@| IvoryCmd.cluster
+      |@| IvoryCmd.repository
+      //Added by Kirupa to support moving of command output to external location
+      |@| flag[String](both('e', "copyto"), description("""
+                                                          |External location where the output should be copied (S3 or hdfs), eg. --copyto "s3://bucketname/folder/"
+                                                          |
+                                                          |Number of maps [OPTIONAL] to run the copy job can be specified as --copyto "s3://bucketname/folder/ 10"
+                                                          |
+                                                          |Use NA as value for --copyto parameter if the data need not be copied to external location.eg. --copyto "NA"
+                                                          |""".stripMargin))
 
-  )((inputs, timezone, optimal, cluster, loadRepo,extLoc) => IvoryRunner(configuration => loadRepo(configuration).flatMap(repo => for {
+      )((inputs, timezone, optimal, cluster, loadRepo,extLoc) => IvoryRunner(configuration => loadRepo(configuration).flatMap(repo => for {
 
-        inputs  <- IvoryT.fromRIO(RIO.fromDisjunctionString(
-          inputs.traverseU(InputFormat.fromString).flatMap(_.traverseU {
-            case (f, ns, i) => IvoryLocation.parseUri(i, configuration).map(il => (f, ns, il))
-          })
-        ))
-        _ <- IvoryT.fromRIO(inputs.traverseU {
-          case (_, ns, i) => ns.cata(_ => RIO.unit,
-            IvoryLocation.isDirectory(i).flatMap(RIO.unless(_, RIO.fail(s"Invalid file ${i.show} for ingesting namespaces - must be a directory"))))
+      inputs  <- IvoryT.fromRIO(RIO.fromDisjunctionString(
+        inputs.traverseU(InputFormat.fromString).flatMap(_.traverseU {
+          case (f, ns, i) => IvoryLocation.parseUri(i, configuration).map(il => (f, ns, il))
         })
-        factset <- Ingest.ingestFacts(repo, cluster(configuration), inputs, timezone, optimal)
-      
-      }yield List(s"""Successfully imported '${inputs.mkString(", ")}' as $factset into '${repo}' ${DistcpHdfsToS3.copyToExternal(repo.root.location.render+"/factsets",extLoc)}""")
-  ))))
+      ))
+      _ <- IvoryT.fromRIO(inputs.traverseU {
+        case (_, ns, i) => ns.cata(_ => RIO.unit,
+          IvoryLocation.isDirectory(i).flatMap(RIO.unless(_, RIO.fail(s"Invalid file ${i.show} for ingesting namespaces - must be a directory"))))
+      })
+      factset <- Ingest.ingestFacts(repo, cluster(configuration), inputs, timezone, optimal)
+
+    }yield List(s"""Successfully imported '${inputs.mkString(", ")}' as $factset into '${repo}' ${DistcpHdfsToS3.copyToExternal(repo.root.location.render+"/factsets",extLoc)}""")
+    ))))
 }
